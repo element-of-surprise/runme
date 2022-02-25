@@ -1,0 +1,9 @@
+# Runme
+
+So, occassionally I need to stream together a bunch of command line tools to do something in the cloud. So for example using the az cli tool and kubectl. I often need to stamp out things like kube clusters every year or two to upgrade versions and upgrade internal packages. However, the landscape will have changed and I need to mutate the procedure.
+
+While I can build custom tools using exec.Cmd, what I find later is that the combination of stuff I was doing is hard to mutate with my changes.  So I need to input new steps or modify commands. I found doing it the traditional way to be kinda taxing.
+
+This library + binary allows me to string together a bunch of these commands, capture output to push into the next thing.  It also does some basic resume functions.
+
+This is useful for writing semi-repeatable tooling (semi because what you are doing is changed by the upstream, not by me) and allow rapdi mutation to get to a desired state.
