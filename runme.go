@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/uuid"
-	osfs "github.com/gopherfs/fs/io/os"
 	"github.com/element-of-surprise/runme/config"
 	"github.com/element-of-surprise/runme/exec"
+	"github.com/google/uuid"
+	osfs "github.com/gopherfs/fs/io/os"
 )
 
 var (
@@ -30,18 +30,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	c, err := config.FromFile(ofs, *conf)
-	if err != nil {
-		fmt.Printf("Error opening config file(%s): %s", *conf, err)
-		os.Exit(1)
-	}
-
 	vals := map[string]string{}
 	if *valsJSON != "" {
 		if err := json.Unmarshal([]byte(*valsJSON), &vals); err != nil {
 			fmt.Printf("Errorf unmarshalling --vals into our map: %s\n", err)
 			os.Exit(1)
 		}
+	}
+
+	c, err := config.FromFile(ofs, *conf, vals)
+	if err != nil {
+		fmt.Printf("Error opening config file(%s): %s", *conf, err)
+		os.Exit(1)
 	}
 
 	startAt := ""
@@ -54,7 +54,7 @@ func main() {
 
 		r := &resumeConf{}
 		if err := json.Unmarshal(b, &r); err != nil {
-			fmt.Printf("Error unmarshalling resume file(%s): &s\n", *resume, err)
+			fmt.Printf("Error unmarshalling resume file(%s): %s\n", *resume, err)
 			os.Exit(1)
 		}
 		if err := r.validate(); err != nil {
@@ -68,7 +68,11 @@ func main() {
 		}
 	}
 
-	e := &exec.Executor{StartAt: startAt}
+	e, err := exec.New(startAt, ofs, vals)
+	if err != nil {
+		panic(err)
+	}
+
 	if err := e.Run(c, vals); err != nil {
 		fmt.Printf("Error: The program had a problem: %s\n", err)
 
@@ -91,7 +95,7 @@ func main() {
 			fmt.Printf("problem writing resume file: %s\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("your resume file ID is: %s", filepath.Base(p))
+		fmt.Printf("your resume file ID is: %s\n", filepath.Base(p))
 		os.Exit(1)
 	}
 

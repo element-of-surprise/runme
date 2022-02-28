@@ -30,10 +30,9 @@ func TestLine(t *testing.T) {
 		},
 	}
 
-	l := New("")
+	l := New()
 	for _, test := range tests {
-		l.Reset(test.line)
-		ch := l.Parse()
+		ch := l.Parse(test.line)
 		got := []Item{}
 		for item := range ch {
 			got = append(got, item)

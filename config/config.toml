@@ -1,25 +1,4 @@
-# Runme
-
-So, occassionally I need to stream together a bunch of command line tools to do something in the cloud. So for example using the az cli tool and kubectl. I often need to stamp out things like kube clusters every year or two to upgrade versions and upgrade internal packages. However, the landscape will have changed and I need to mutate the procedure.
-
-While I can build custom tools using exec.Cmd, what I find later is that the combination of stuff I was doing is hard to mutate with my changes.  So I need to input new steps or modify commands. I found doing it the traditional way to be kinda taxing.
-
-You might be saying something like, why don't you use bash or powershell. Don't even get me started with powershell... Now, for you bash, zsh, or whatever.... I want something a little more repeatable, less error prone and kinda restartable. Can I do that in whatever shell thing, yes.  But it takes a lot more pain. Its the same reason I don't write software in shell script, you can... but should you? To me, shell is for when I need to run one program in a loop or string a very limited amount of things together (like no more than 80 characters).
-
-This library + binary allows me to string together a bunch of commands, capture output to push into the next thing.  It can create variables from variables using text/template. It also does some basic resume functions.
-
-This is useful for writing semi-repeatable tooling (semi because what you are doing is changed by the upstream, not by me) and allow rapid mutation to get to a desired state.  And importantly, I can recover from failure and restart where I left off.
-
-## Generic config runner
-
-In this mode, you basically just run the `runme` tool and pass the `--conf` pointing to a configuration file and a `--vals` passing a JSON map of required values.
-
-Configs are TOML files.
-
-The configuration details can be found in config/config.go. Here is an example of a config that uses Azure CLI to build a Kubernetes cluster that has system and user MSIs, uses AADPod Identities and writes our various configs. 
-
-```
-[[[Required]]
+[[Required]]
     Name = "Subscription"
     Regex = "^Subscription$"
 [[Required]]
@@ -57,6 +36,12 @@ The configuration details can be found in config/config.go. Here is an example o
 [[Seqs]]
 	Name = "VnetCreate"
 	Cmd = "az network vnet create --name {{ .KubeName }} --resource-group {{ .KubeName }} --subnet-name default --subnet-prefix 10.0.0.0/16"
+    ValueKey = "VnetInfo"
+
+[[Seqs]]
+    Name = "Write Vnet Info"
+    Path = "./vnet.json"
+    Value = "{{.VnetInfo}}"
 
 [[Seqs]]
 # --assign-identity /subscriptions/{{ .Subscription }}/resourcegroups/{{ .Region }}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/westus2-msi-ua
@@ -73,12 +58,23 @@ The configuration details can be found in config/config.go. Here is an example o
 	--service-cidr 10.2.0.0/24
 	--enable-managed-identity
 	"""
+    ValueKey = "ClusterInfo"
+
+[[Seqs]]
+    Name = "Write Cluster Info"
+    Path = "./cluster.json"
+    Value = "{{.ClusterInfo}}"
 
 [[Seqs]]
 	Name = "SystemMSI"
 	Cmd = "az aks show -g {{ .KubeName }} -n {{ .KubeName }} --query identity"
 	ValueKey = "SystemMSI"
-	
+
+[[Seqs]]
+    Name = "Write System MSI Info"
+    Path = "./system_msi.json"
+    Value = "{{.SystemMSI}}"
+
 [[Seqs]]
 	Name = "GetCreds"
 	Cmd = "az aks get-credentials --resource-group {{ .KubeName }} --name {{ .KubeName }}"
@@ -87,6 +83,11 @@ The configuration details can be found in config/config.go. Here is an example o
 	Name = "GetMSIID"
 	Cmd = "az aks show -g {{ .KubeName }} -n {{ .KubeName }} --query \"identityProfile.kubeletidentity.clientId\" -otsv"
 	ValueKey = "MSIID"
+
+[[Seqs]]
+    Name = "Write System MSI Info 2"
+    Path = "./system_msi2.json"
+    Value = "{{.MSIID}}"
 
 [[Seqs]]
 	Name = "RoleAssignmentManagedIdentity"
@@ -108,25 +109,27 @@ The configuration details can be found in config/config.go. Here is an example o
 
 [[Seqs]]
 	Name = "AADPodDeploy"
-	Cmd = """
-	kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/deployment-rbac.yaml
-	"""
+	Cmd = "kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/deployment-rbac.yaml"
 
 [[Seqs]]
 	Name = "DeployMicAndAKSExceptions"
-	Cmd = """
-	kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/mic-exception.yaml
-	"""
+	Cmd = "kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/mic-exception.yaml"
 
 [[Seqs]]
 	Name = "CreateUserMSI"
 	Cmd = "az identity create -g {{ .KubeName }} -n {{ .UserMSI }}"
-	ValueKey = "UserMSIID"
 
 [[Seqs]]
 	Name = "GetUserMSIID"
-	Sleep = "5m"
 	Cmd = "az identity show -g {{ .KubeName }} -n {{ .UserMSI }} --query clientId -otsv"
+    ValueKey = "UserMSIID"
+    RetrySleep = "1m"
+    Retries = 5
+
+[[Seqs]]
+    Name = "GetUserMSIResc"
+    Cmd = "az identity show -g {{ .Region }} -n {{ .UserMSI }} --query id -otsv"
+    ValueKey = "UserMSIResc"
 
 [[Seqs]]
 	Name = "AssignRoleReader"
@@ -139,5 +142,37 @@ The configuration details can be found in config/config.go. Here is an example o
 	-otsv
 	"""
 
-// add OnError
+[[Seqs]]
+    Name = "Write aadident.yaml"
+    Path = "./aadident.yaml"
+    Value = """
+apiVersion: "aadpodidentity.k8s.io/v1"
+kind: AzureIdentity
+metadata:
+    name: {{ .UserMSI }}
+spec:
+    type: 0
+    resourceID: {{ .UserMSIResc }}
+    clientID: {{ .UserMSIID }}
+  """
 
+[[Seqs]]
+    Name = "Write aadbinding.yaml"
+    Path = "./aadbinding.yaml"
+    Value = """
+apiVersion: "aadpodidentity.k8s.io/v1"
+kind: AzureIdentityBinding
+metadata:
+    name: {{ .UserMSI }}-binding
+spec:
+    azureIdentity: {{ .UserMSI }}
+    selector: {{ .UserMSI }}
+    """
+
+[[Seqs]]
+    Name = "Apply aadident.yaml"
+    Cmd = "kubectl apply -f aadident.yaml"
+
+[[Seqs]]
+    Name = "Apply aadbinding.yaml"
+	Cmd = "kubectl apply -f aadbinding.yaml"
