@@ -8,6 +8,7 @@ package lexer
 import (
 	"fmt"
 	"io"
+	//"log"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -92,6 +93,14 @@ func (l *Line) parseString() error {
 			raw.WriteString(s)
 			l.emit(raw.String())
 			return nil
+		case string(r) == `{` && string(l.peek()) == `{`:
+			l.backup()
+			s, err := l.mustache()
+			if err != nil {
+				return err
+			}
+			//log.Printf("I see: %q", s)
+			raw.WriteString(s)
 		case unicode.IsSpace(r):
 			if raw.Len() > 0 {
 				l.emit(raw.String())
@@ -111,6 +120,10 @@ func (l *Line) parseString() error {
 
 // emit emits an Item from the string.
 func (l *Line) emit(s string) {
+	//log.Printf("emit: %q", s)
+	if strings.TrimSpace(s) == "" {
+		return
+	}
 	switch {
 	case strings.HasPrefix(s, "-") || strings.HasPrefix(s, "--"):
 		if strings.Contains(s, "=") {
@@ -123,12 +136,18 @@ func (l *Line) emit(s string) {
 	l.ch <- Item{Type: ItemWord, Value: s}
 }
 
-// untilClose is used when the next character is " or ' and then gathers all characters until the closing quote is seen.
+// untilClose is used when the next character is ", ', or {{  and then gathers all characters until the closing quote is seen.
 // The next character after the quote must be a EOL or space.
 func (l *Line) untilClose() (string, error) {
 	raw := strings.Builder{}
 	quote := l.next()
-	raw.WriteRune(quote)
+
+	switch quote {
+	case '"', '\'':
+		raw.WriteRune(quote)
+	default:
+		return "", fmt.Errorf("open quote was not one we support(%q)", string(quote))
+	}
 
 	for {
 		r := l.next()
@@ -138,10 +157,47 @@ func (l *Line) untilClose() (string, error) {
 			if !unicode.IsSpace(p) && p != rune(ItemEOL) {
 				return "", fmt.Errorf("open quote(%s) was not met with a closed quote followed by a space or EOL", string(quote))
 			}
-			raw.WriteRune(r)
+			raw.WriteRune(quote)
 			return raw.String(), nil
 		case r == rune(ItemEOL):
 			return "", fmt.Errorf("open quote(%s) was never closed", string(quote))
+		default:
+			raw.WriteRune(r)
+		}
+	}
+}
+
+// mustache is used when the next characters are {{ and then gathers all characters until the closing }} is seen.
+func (l *Line) mustache() (string, error) {
+	raw := strings.Builder{}
+	left := l.next()
+
+	switch {
+	case left == '{':
+		if l.peek() != '{' {
+			return "", fmt.Errorf("bug: open quote for mustache({{) was missing second bracket")
+		}
+		l.next()
+		raw.WriteString(`{{`)
+	default:
+		return "", fmt.Errorf("bug: mustache()was called when there was no mustache {{")
+	}
+
+	for {
+		r := l.next()
+		switch {
+		case r == '}':
+			p := l.peek()
+			if p != '}' {
+				raw.WriteRune(r)
+				continue
+			}
+			l.next()
+			raw.WriteString("}}")
+
+			return raw.String(), nil
+		case r == rune(ItemEOL):
+			return "", fmt.Errorf("open mustache {{ was never closed")
 		default:
 			raw.WriteRune(r)
 		}

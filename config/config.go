@@ -2,12 +2,12 @@
 package config
 
 import (
+	"log"
 	"bytes"
 	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
-	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -23,7 +23,7 @@ type Config struct {
 	Required []Required
 	// CreateVars are a list of variables to create. This operation is done before any
 	// sequence has run, but it does allow use of variables stored in the vals map.
-	CreateVars []CreateVar
+	CreateVars []*CreateVar
 	// Sequences is a sequence of actions to execute, in order.
 	//Seqs []Sequence
 
@@ -98,18 +98,18 @@ func (c *Config) validate(fsys gfs.Writer, vals map[string]string) error {
 
 	for i, seq := range c.sequences {
 		switch v := seq.Item().(type) {
-		case CreateVar:
+		case *CreateVar:
 			if err := v.validate(seen); err != nil {
 				return err
 			}
 			c.sequences[i] = &Sequence{createVar: v}
-		case Runner:
+		case *Runner:
 			runners++
 			if err := v.validate(seen); err != nil {
 				return err
 			}
 			c.sequences[i] = &Sequence{runner: v}
-		case WriteFile:
+		case *WriteFile:
 			if err := v.validate(seen); err != nil {
 				return err
 			}
@@ -135,19 +135,19 @@ type Required struct {
 
 // Sequence represents a sequenced action to perform. This is either a CreateVar, Runner or WriteFile.
 type Sequence struct {
-	createVar CreateVar
-	runner    Runner
-	writeFile WriteFile
+	createVar *CreateVar
+	runner    *Runner
+	writeFile *WriteFile
 }
 
 func (s *Sequence) Item() interface{} {
-	if !reflect.ValueOf(s.createVar).IsZero() {
+	if s.createVar != nil {
 		return s.createVar
 	}
-	if !reflect.ValueOf(s.runner).IsZero() {
+	if s.runner != nil {
 		return s.runner
 	}
-	if !reflect.ValueOf(s.writeFile).IsZero() {
+	if s.writeFile != nil {
 		return s.writeFile
 	}
 	return nil
@@ -184,7 +184,7 @@ func (c *CreateVar) validate(seen map[string]bool) error {
 	return nil
 }
 
-func (c CreateVar) Exec(fsys fs.FS, vals map[string]string) error {
+func (c *CreateVar) Exec(fsys fs.FS, vals map[string]string) error {
 	tmpl, err := template.New("").Parse(c.Value)
 	if err != nil {
 		return fmt.Errorf("CreateVar(%s) violated a text/template rule: %s", c.Key, err)
@@ -232,7 +232,8 @@ func (w *WriteFile) validate(seen map[string]bool) error {
 	return nil
 }
 
-func (w WriteFile) Exec(wr gfs.Writer, vals map[string]string) error {
+func (w *WriteFile) Exec(wr gfs.Writer, vals map[string]string) error {
+	log.Printf("here is the value before parse: %q", w.Value)
 	tmpl, err := template.New("").Parse(w.Value)
 	if err != nil {
 		return fmt.Errorf("WriteFile(%s) violated a text/template rule: %s", w.Path, err)
@@ -332,30 +333,32 @@ func FromFile(fsys gfs.Writer, p string, vals map[string]string) (*Config, error
 
 	for i, seq := range c.Seqs {
 		s := &Sequence{}
-		if err := md.PrimitiveDecode(seq, &s.createVar); err == nil && s.Item() != nil {
+		cv := CreateVar{}
+		if err := md.PrimitiveDecode(seq, &cv); err == nil {
 			// PrimitiveDecode will decode a Runner into a CreateVar because both have
 			// the Attribute "Name". You can't get a metadata for just this to check if the keys
 			// have been decoded. So, we check that a unique and required attribute is set.
-			if s.createVar.Key != "" {
+			if cv.Key != "" {
+				s.createVar = &cv
 				c.sequences = append(c.sequences, s)
 				continue
 			}
-			// Reset it to the zero value because it was a bad decode.
-			s.createVar = CreateVar{}
 		}
-		if err := md.PrimitiveDecode(seq, &s.runner); err == nil && s.Item() != nil {
-			if s.runner.Cmd != "" {
+		r := Runner{}
+		if err := md.PrimitiveDecode(seq, &r); err == nil {
+			if r.Cmd != "" {
+				s.runner = &r
 				c.sequences = append(c.sequences, s)
 				continue
 			}
-			s.runner = Runner{}
 		}
-		if err := md.PrimitiveDecode(seq, &s.writeFile); err == nil && s.Item() != nil {
-			if s.writeFile.Path != "" {
+		wf := WriteFile{}
+		if err := md.PrimitiveDecode(seq, &wf); err == nil{
+			if wf.Path != "" {
+				s.writeFile = &wf
 				c.sequences = append(c.sequences, s)
 				continue
 			}
-			s.writeFile = WriteFile{}
 		}
 		return nil, fmt.Errorf("Sequence(%d) does not seem to decode into anything", i)
 	}

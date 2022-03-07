@@ -37,124 +37,124 @@ func TestFromFile(t *testing.T) {
 			{Name: "Tenant"},
 			{Name: "Region"},
 		},
-		CreateVars: []CreateVar{
+		CreateVars: []*CreateVar{
 			{Name: "Create KubeName", Key: "KubeName", Value: "kube_{{ .Region }}"},
 			{Name: "Create MCResc", Key: "MCResc", Value: "MC_{{ .KubeName }}_{{ .KubeName }}_{{ .Region }}"},
 			{Name: "Create UserMSI", Key: "UserMSI", Value: "{{ .Region }}-msi-ua"},
 		},
 		sequences: []*Sequence{
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "AzLogin",
 					Cmd:  "az login --use-device-code",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "SetAccount",
 					Cmd:  "az account set -s {{.Subscription}}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "CreateGroup",
 					Cmd:  "az group create --name {{ .KubeName }} --location {{ .Region }}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:     "VnetCreate",
 					Cmd:      "az network vnet create --name {{ .KubeName }} --resource-group {{ .KubeName }} --subnet-name default --subnet-prefix 10.0.0.0/16",
 					ValueKey: "VnetInfo",
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name:  "Write Vnet Info",
 					Path:  "./vnet.json",
 					Value: "{{.VnetInfo}}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:     "CreateCluster",
 					Cmd:      `az aks create --name kube_{{.Region}} --resource-group {{ .KubeName }} --os-sku CBLMariner --max-pods 250 --network-plugin azure --vnet-subnet-id /subscriptions/{{ .Subscription }}/resourceGroups/{{ .Region }}/providers/Microsoft.Network/virtualNetworks/{{ .KubeName }}/subnets/default --docker-bridge-address 172.17.0.1/16 --service-cidr 10.2.0.0/24 --enable-managed-identity`,
 					ValueKey: "ClusterInfo",
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name:  "Write Cluster Info",
 					Path:  "./cluster.json",
 					Value: "{{.ClusterInfo}}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:     "SystemMSI",
 					Cmd:      "az aks show -g {{ .KubeName }} -n {{ .KubeName }} --query identity",
 					ValueKey: "SystemMSI",
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name:  "Write System MSI Info",
 					Path:  "./system_msi.json",
 					Value: "{{.SystemMSI}}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "GetCreds",
 					Cmd:  "az aks get-credentials --resource-group {{ .KubeName }} --name {{ .KubeName }}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:     "GetMSIID",
 					Cmd:      `az aks show -g {{ .KubeName }} -n {{ .KubeName }} --query "identityProfile.kubeletidentity.clientId" -otsv`,
 					ValueKey: "MSIID",
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name:  "Write System MSI Info 2",
 					Path:  "./system_msi2.json",
 					Value: "{{.MSIID}}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "RoleAssignmentManagedIdentity",
 					Cmd:  `az role assignment create --role "Managed Identity Operator" --assignee {{ .MSIID }} --scope /subscriptions/{{ .Subscription }}/resourcegroups/{{ .MCResc }}`,
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "RoleAssignmentVirtualMachine",
 					Cmd:  `az role assignment create --role "Virtual Machine Contributor" --assignee {{.MSIID}} --scope /subscriptions/{{.Subscription}}/resourcegroups/{{ .MCResc}}`,
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "AADPodDeploy",
 					Cmd:  "kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/deployment-rbac.yaml",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "DeployMicAndAKSExceptions",
 					Cmd:  "kubectl apply -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/mic-exception.yaml",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "CreateUserMSI",
 					Cmd:  "az identity create -g {{ .KubeName }} -n {{ .UserMSI }}",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:       "GetUserMSIID",
 					Cmd:        "az identity show -g {{ .KubeName }} -n {{ .UserMSI }} --query clientId -otsv",
 					ValueKey:   "UserMSIID",
@@ -163,20 +163,20 @@ func TestFromFile(t *testing.T) {
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name:     "GetUserMSIResc",
 					Cmd:      "az identity show -g {{ .Region }} -n {{ .UserMSI }} --query id -otsv",
 					ValueKey: "UserMSIResc",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "AssignRoleReader",
 					Cmd:  `az role assignment create --role Reader --assignee {{.UserMSIID}} --scope "/subscriptions/{{ .Subscription }}/resourceGroups/{{ .MCResc }}" --query id -otsv`,
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name: "Write aadident.yaml",
 					Path: "./aadident.yaml",
 					Value: strings.TrimSpace(`
@@ -192,7 +192,7 @@ spec:
 				},
 			},
 			{
-				writeFile: WriteFile{
+				writeFile: &WriteFile{
 					Name: "Write aadbinding.yaml",
 					Path: "./aadbinding.yaml",
 					Value: strings.TrimSpace(`
@@ -207,13 +207,13 @@ spec:
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "Apply aadident.yaml",
 					Cmd:  "kubectl apply -f aadident.yaml",
 				},
 			},
 			{
-				runner: Runner{
+				runner: &Runner{
 					Name: "Apply aadbinding.yaml",
 					Cmd:  "kubectl apply -f aadbinding.yaml",
 				},

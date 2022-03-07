@@ -40,7 +40,7 @@ func main() {
 
 	c, err := config.FromFile(ofs, *conf, vals)
 	if err != nil {
-		fmt.Printf("Error opening config file(%s): %s", *conf, err)
+		fmt.Printf("Error opening config file(%s): %s\n", *conf, err)
 		os.Exit(1)
 	}
 
@@ -68,7 +68,7 @@ func main() {
 		}
 	}
 
-	e, err := exec.New(startAt, ofs, vals)
+	e, err := exec.New(c.Sequences(), startAt, ofs, vals)
 	if err != nil {
 		panic(err)
 	}
@@ -77,7 +77,7 @@ func main() {
 		fmt.Printf("Error: The program had a problem: %s\n", err)
 
 		r := &resumeConf{Vals: vals, StartAt: e.FailedNode()}
-		b, err := json.Marshal(r)
+		b, err := json.MarshalIndent(r, "", "\t")
 		if err != nil {
 			fmt.Printf("could not create a resume file: %s\n", err)
 			os.Exit(1)
@@ -88,7 +88,7 @@ func main() {
 			id := uuid.New().String()
 			p = filepath.Join(os.TempDir(), id+".resume.json")
 		} else {
-			p = filepath.Join(os.TempDir(), *resume)
+			p = filepath.Join(*resume)
 		}
 
 		if err := os.WriteFile(p, b, 0660); err != nil {

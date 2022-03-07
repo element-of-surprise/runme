@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"log"
 	"bytes"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 // purposes of this package.
 type Cmd struct {
 	cmd   *exec.Cmd
+	args []string
 	debug bool
 }
 
@@ -24,26 +26,44 @@ func New(s string, vals map[string]string) (*Cmd, error) {
 	p := parser.Line{}
 	args, err := p.Parse(s)
 	if err != nil {
-		return nil, fmt.Errorf("command could not be parsed: %s", err)
+		return nil, fmt.Errorf("command(%s) could not be parsed: %s", s, err)
 	}
 	b := strings.Builder{}
 	for i, arg := range args[1:] {
 		b.Reset()
 		tmpl, err := template.New("").Parse(arg)
 		if err != nil {
-			return nil, fmt.Errorf("arg(%s) violated a text/template rule: %s", arg, err)
+			return nil, fmt.Errorf("arg(%s) violated a text/template rule: %s\n template looks like:\n%s", arg, err, strings.Join(args, " "))
 		}
 		if err := tmpl.Execute(&b, vals); err != nil {
 			return nil, fmt.Errorf("problem with template execution: %s", err)
 		}
-		args[i] = b.String()
+		s := b.String()
+
+		// Okay.... shell uses quotes of either ' or " to wrap a mutli-space arguement as a single arugement. But exec.Cmd doesn't, so you need
+		// to remove outer quotes, if they exist.
+		if strings.HasPrefix(s, `"`) {
+			s = strings.TrimPrefix(s, `"`)
+			s = strings.TrimSuffix(s, `"`)
+		}else if strings.HasPrefix(s, `'`){
+			s = strings.TrimPrefix(s, `'`)
+			s = strings.TrimSuffix(s, `'`)
+		}
+
+		args[i+1] = s
 	}
 
+	log.Printf("args: %#+v", args)
 	c := &Cmd{
-		cmd:   exec.Command(args[0], args...),
+		cmd:   exec.Command(args[0], args[1:]...),
+		args: args,
 		debug: true,
 	}
 	return c.BaseEnv(), nil
+}
+
+func (c *Cmd) String() string {
+	return strings.Join(c.args, " ")
 }
 
 // Debug if set to on will send the command stdout and stderr to the os.Stdout and os.Stderr.
